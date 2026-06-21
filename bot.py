@@ -100,8 +100,25 @@ async def handle_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     p = result.data[0]
     caption = build_caption(property_id, p)
 
-    images = p.get("images") or []
-    images = [url for url in images if url and url.startswith("http")]
+    raw_images = p.get("images") or []
+    images = []
+    if raw_images:
+        try:
+            signed = supabase.storage.from_("property-images").create_signed_urls(
+                raw_images, 3600
+            )
+            for item in signed:
+                url = (
+                    item.get("signedURL")
+                    or item.get("signedUrl")
+                    or item.get("signed_url")
+                )
+                if url:
+                    if url.startswith("/"):
+                        url = f"{SUPABASE_URL}/storage/v1{url}"
+                    images.append(url)
+        except Exception as e:
+            logger.error(f"Signed URL error: {e}")
 
     if images:
         try:
