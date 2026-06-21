@@ -17,8 +17,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 SIGNATURE = (
-    "\n👤 С уважением, эксперт мухаммаднур недвижимости\n"
-    "https://t.me/Tower_estat"
+    "\n👤 С уважением, эксперт мухаммаднур по недвижимости\n"
+    "https://t.me/Tower_estate"
 )
 
 
@@ -115,7 +115,7 @@ async def handle_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 if url:
                     if url.startswith("/"):
-                        url = f"{SUPABASE_URL}/storage/v1{url}"
+                        url = f"{SUPABASE_URL}{url}"
                     images.append(url)
         except Exception as e:
             logger.error(f"Signed URL error: {e}")
