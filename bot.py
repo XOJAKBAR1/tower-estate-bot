@@ -101,11 +101,18 @@ async def handle_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     caption = build_caption(property_id, p)
 
     images = p.get("images") or []
+    images = [url for url in images if url and url.startswith("http")]
 
     if images:
-        media = [InputMediaPhoto(media=url) for url in images[:10]]
-        media[0] = InputMediaPhoto(media=images[0], caption=caption)
-        await update.message.reply_media_group(media=media)
+        try:
+            media = [InputMediaPhoto(media=url) for url in images[:10]]
+            media[0] = InputMediaPhoto(media=images[0], caption=caption)
+            await update.message.reply_media_group(media=media)
+        except Exception as e:
+            logger.error(f"Media group error: {e}")
+            await update.message.reply_text(
+                caption + "\n\n⚠️ (Rasmlarni yuklashda xatolik bo'ldi)"
+            )
     else:
         await update.message.reply_text(caption)
 
