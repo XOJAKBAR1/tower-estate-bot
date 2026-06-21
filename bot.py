@@ -107,6 +107,8 @@ async def handle_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
             signed = supabase.storage.from_("property-images").create_signed_urls(
                 raw_images, 3600
             )
+            logger.info(f"raw_images: {raw_images}")
+            logger.info(f"signed result: {signed}")
             for item in signed:
                 url = (
                     item.get("signedURL")
