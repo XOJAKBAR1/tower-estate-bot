@@ -36,6 +36,74 @@ async def districts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Xato: {e}")
 
 
+import json
+import asyncio
+import httpx
+
+EDGE_FUNCTION_URL = f"{SUPABASE_URL}/functions/v1/bulk-import-properties"
+IMPORT_SECRET = os.getenv("IMPORT_SECRET", "")
+BATCH_SIZE = 500
+
+
+async def import_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args
+    if not args or args[0] != IMPORT_SECRET or not IMPORT_SECRET:
+        await update.message.reply_text("Ruxsat yo'q.")
+        return
+
+    try:
+        with open("properties_import.json", encoding="utf-8") as f:
+            all_rows = json.load(f)
+    except Exception as e:
+        await update.message.reply_text(f"Faylni o'qishda xato: {e}")
+        return
+
+    total = len(all_rows)
+    await update.message.reply_text(f"Import boshlandi: {total} ta qator, {BATCH_SIZE} tadan bo'lib yuborilmoqda...")
+
+    inserted_total = 0
+    error_total = 0
+    error_samples = []
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+            "apikey": SUPABASE_KEY,
+        }
+        for i in range(0, total, BATCH_SIZE):
+            batch = all_rows[i : i + BATCH_SIZE]
+            try:
+                resp = await client.post(
+                    EDGE_FUNCTION_URL,
+                    headers=headers,
+                    json={"properties": batch},
+                )
+                data = resp.json()
+                inserted_total += data.get("inserted_count", 0)
+                error_total += data.get("error_count", 0)
+                for err in data.get("errors", [])[:3]:
+                    if len(error_samples) < 10:
+                        error_samples.append(str(err))
+            except Exception as e:
+                error_total += len(batch)
+                error_samples.append(f"Batch {i}: {e}")
+
+            batch_num = i // BATCH_SIZE + 1
+            total_batches = (total + BATCH_SIZE - 1) // BATCH_SIZE
+            if batch_num % 5 == 0 or batch_num == total_batches:
+                await update.message.reply_text(
+                    f"Progress: {batch_num}/{total_batches} batch | "
+                    f"OK: {inserted_total} | Xato: {error_total}"
+                )
+            await asyncio.sleep(0.3)
+
+    summary = f"✅ Import tugadi.\nMuvaffaqiyatli: {inserted_total}\nXato: {error_total}"
+    if error_samples:
+        summary += "\n\nNamuna xatolar:\n" + "\n".join(error_samples[:5])
+    await update.message.reply_text(summary)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Salom! Uy ID raqamini yuboring, men sizga ma'lumotlarini chiqarib beraman.\n"
@@ -154,6 +222,7 @@ def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("districts", districts_cmd))
+    app.add_handler(CommandHandler("import", import_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_id))
     logger.info("Bot ishga tushdi...")
     app.run_polling()
