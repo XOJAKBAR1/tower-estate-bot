@@ -22,6 +22,20 @@ SIGNATURE = (
 )
 
 
+async def districts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        result = supabase.table("districts").select("*").execute()
+        if not result.data:
+            await update.message.reply_text("Districts jadvali bo'sh.")
+            return
+        lines = [f"{d.get('id')}: {d.get('name')}" for d in result.data]
+        text = "\n".join(lines)
+        for i in range(0, len(text), 3500):
+            await update.message.reply_text(text[i:i+3500])
+    except Exception as e:
+        await update.message.reply_text(f"Xato: {e}")
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Salom! Uy ID raqamini yuboring, men sizga ma'lumotlarini chiqarib beraman.\n"
@@ -139,6 +153,7 @@ async def handle_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("districts", districts_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_id))
     logger.info("Bot ishga tushdi...")
     app.run_polling()
