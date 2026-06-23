@@ -16,8 +16,8 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-SIGNATURE = (
-    "\n👤 С уважением, эксперт мухаммаднур по недвижимости\n"
+SIGNATURE_TEMPLATE = (
+    "\n👤 С уважением, эксперт {name} по недвижимости\n"
     "https://t.me/Tower_estate"
 )
 
@@ -129,7 +129,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-def build_caption(property_id: int, p: dict) -> str:
+def build_caption(property_id: int, p: dict, employee_name: str) -> str:
     district_name = "-"
     if p.get("districts"):
         district_name = p["districts"].get("name", "-")
@@ -164,7 +164,7 @@ def build_caption(property_id: int, p: dict) -> str:
         f"📐Площадь: {area_text}\n"
         f"💸Цена: {price_text}\n"
         f"💸Депозит: {deposit_text}\n"
-        f"{SIGNATURE}"
+        f"{SIGNATURE_TEMPLATE.format(name=employee_name)}"
     )
     return caption
 
@@ -200,7 +200,23 @@ async def handle_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     p = result.data[0]
-    caption = build_caption(display_number, p)
+
+    employee_name = "Tower Estate"
+    added_by = p.get("added_by")
+    if added_by:
+        try:
+            prof = (
+                supabase.table("profiles")
+                .select("full_name")
+                .eq("id", added_by)
+                .execute()
+            )
+            if prof.data and prof.data[0].get("full_name"):
+                employee_name = prof.data[0]["full_name"]
+        except Exception as e:
+            logger.error(f"Profile fetch error: {e}")
+
+    caption = build_caption(display_number, p, employee_name)
 
     raw_images = p.get("images") or []
     images = []
@@ -236,6 +252,11 @@ async def handle_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
     else:
         await update.message.reply_text(caption)
+
+    owner_name = p.get("owner_name") or "-"
+    owner_phone = p.get("owner_phone") or "-"
+    owner_caption = f"📞 Egasi: {owner_name}\n📱 Telefon: {owner_phone}"
+    await update.message.reply_text(owner_caption)
 
 
 def main():
