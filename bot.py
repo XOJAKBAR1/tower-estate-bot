@@ -171,19 +171,21 @@ def build_caption(property_id: int, p: dict) -> str:
 
 async def handle_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
-    if not text.isdigit():
+    if not text.isdigit() or int(text) < 1:
         await update.message.reply_text(
-            "Iltimos, faqat uy ID raqamini yuboring (masalan: 6)"
+            "Iltimos, faqat uy tartib raqamini yuboring (masalan: 6)"
         )
         return
 
-    property_id = int(text)
+    display_number = int(text)
+    offset = display_number - 1
 
     try:
         result = (
             supabase.table("properties")
             .select("*, districts(name)")
-            .eq("id", property_id)
+            .order("id")
+            .range(offset, offset)
             .execute()
         )
     except Exception as e:
@@ -194,11 +196,11 @@ async def handle_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if not result.data:
-        await update.message.reply_text(f"❌ #{property_id} ID'li uy topilmadi.")
+        await update.message.reply_text(f"❌ #{display_number} ID'li uy topilmadi.")
         return
 
     p = result.data[0]
-    caption = build_caption(property_id, p)
+    caption = build_caption(display_number, p)
 
     raw_images = p.get("images") or []
     images = []
