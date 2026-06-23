@@ -42,7 +42,7 @@ import httpx
 
 EDGE_FUNCTION_URL = f"{SUPABASE_URL}/functions/v1/bulk-import-properties"
 IMPORT_SECRET = os.getenv("IMPORT_SECRET", "")
-BATCH_SIZE = 500
+BATCH_SIZE = 100
 
 
 async def import_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -51,6 +51,13 @@ async def import_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Ruxsat yo'q.")
         return
 
+    start_index = 0
+    if len(args) > 1:
+        try:
+            start_index = int(args[1])
+        except ValueError:
+            start_index = 0
+
     try:
         with open("properties_import.json", encoding="utf-8") as f:
             all_rows = json.load(f)
@@ -58,14 +65,17 @@ async def import_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Faylni o'qishda xato: {e}")
         return
 
+    all_rows = all_rows[start_index:]
     total = len(all_rows)
-    await update.message.reply_text(f"Import boshlandi: {total} ta qator, {BATCH_SIZE} tadan bo'lib yuborilmoqda...")
+    await update.message.reply_text(
+        f"Import boshlandi (#{start_index}dan): {total} ta qator, {BATCH_SIZE} tadan bo'lib yuborilmoqda..."
+    )
 
     inserted_total = 0
     error_total = 0
     error_samples = []
 
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(180.0)) as client:
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {SUPABASE_KEY}",
@@ -79,6 +89,13 @@ async def import_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     headers=headers,
                     json={"properties": batch},
                 )
+                logger.info(f"Batch {i}: status={resp.status_code}")
+                if resp.status_code != 200:
+                    error_total += len(batch)
+                    snippet = resp.text[:300]
+                    error_samples.append(f"Batch {i}: HTTP {resp.status_code} - {snippet}")
+                    logger.error(f"Batch {i} failed: {resp.status_code} {resp.text[:1000]}")
+                    continue
                 data = resp.json()
                 inserted_total += data.get("inserted_count", 0)
                 error_total += data.get("error_count", 0)
@@ -87,7 +104,8 @@ async def import_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         error_samples.append(str(err))
             except Exception as e:
                 error_total += len(batch)
-                error_samples.append(f"Batch {i}: {e}")
+                error_samples.append(f"Batch {i}: {type(e).__name__}: {repr(e)}")
+                logger.error(f"Batch {i} exception: {type(e).__name__}: {repr(e)}")
 
             batch_num = i // BATCH_SIZE + 1
             total_batches = (total + BATCH_SIZE - 1) // BATCH_SIZE
