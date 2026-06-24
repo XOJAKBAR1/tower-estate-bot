@@ -84,6 +84,61 @@ async def exportids_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def pushmanifest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args
+    if not args or args[0] != IMPORT_SECRET or not IMPORT_SECRET:
+        await update.message.reply_text("Ruxsat yo'q.")
+        return
+
+    try:
+        with open("image_manifest.json", encoding="utf-8") as f:
+            all_items = json.load(f)
+    except Exception as e:
+        await update.message.reply_text(f"Faylni o'qishda xato: {e}")
+        return
+
+    total = len(all_items)
+    await update.message.reply_text(f"Manifest yuklash boshlandi: {total} ta yozuv...")
+
+    url = f"{SUPABASE_URL}/functions/v1/bulk-import-manifest"
+    inserted_total = 0
+    error_total = 0
+    error_samples = []
+    batch_size = 500
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(180.0)) as client:
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+            "apikey": SUPABASE_KEY,
+        }
+        for i in range(0, total, batch_size):
+            batch = all_items[i : i + batch_size]
+            try:
+                resp = await client.post(url, headers=headers, json={"items": batch})
+                if resp.status_code != 200:
+                    error_total += len(batch)
+                    error_samples.append(f"Batch {i}: HTTP {resp.status_code} - {resp.text[:300]}")
+                    continue
+                inserted_total += len(batch)
+            except Exception as e:
+                error_total += len(batch)
+                error_samples.append(f"Batch {i}: {type(e).__name__}: {repr(e)}")
+
+            batch_num = i // batch_size + 1
+            total_batches = (total + batch_size - 1) // batch_size
+            if batch_num % 10 == 0 or batch_num == total_batches:
+                await update.message.reply_text(
+                    f"Progress: {batch_num}/{total_batches} | OK: {inserted_total} | Xato: {error_total}"
+                )
+            await asyncio.sleep(0.2)
+
+    summary = f"✅ Manifest yuklash tugadi.\nOK: {inserted_total}\nXato: {error_total}"
+    if error_samples:
+        summary += "\n\n" + "\n".join(error_samples[:5])
+    await update.message.reply_text(summary)
+
+
 async def import_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if not args or args[0] != IMPORT_SECRET or not IMPORT_SECRET:
@@ -304,6 +359,7 @@ def main():
     app.add_handler(CommandHandler("districts", districts_cmd))
     app.add_handler(CommandHandler("import", import_cmd))
     app.add_handler(CommandHandler("exportids", exportids_cmd))
+    app.add_handler(CommandHandler("pushmanifest", pushmanifest_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_id))
     logger.info("Bot ishga tushdi...")
     app.run_polling()
