@@ -45,6 +45,45 @@ IMPORT_SECRET = os.getenv("IMPORT_SECRET", "")
 BATCH_SIZE = 100
 
 
+async def exportids_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args
+    if not args or args[0] != IMPORT_SECRET or not IMPORT_SECRET:
+        await update.message.reply_text("Ruxsat yo'q.")
+        return
+
+    await update.message.reply_text("Eksport boshlandi...")
+    all_rows = []
+    page_size = 1000
+    offset = 0
+    try:
+        while True:
+            result = (
+                supabase.table("properties")
+                .select("id, address, owner_phone")
+                .order("id")
+                .range(offset, offset + page_size - 1)
+                .execute()
+            )
+            if not result.data:
+                break
+            all_rows.extend(result.data)
+            if len(result.data) < page_size:
+                break
+            offset += page_size
+    except Exception as e:
+        await update.message.reply_text(f"Xato: {e}")
+        return
+
+    with open("export_ids.json", "w", encoding="utf-8") as f:
+        json.dump(all_rows, f, ensure_ascii=False)
+
+    await update.message.reply_document(
+        document=open("export_ids.json", "rb"),
+        filename="export_ids.json",
+        caption=f"Jami: {len(all_rows)} qator",
+    )
+
+
 async def import_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if not args or args[0] != IMPORT_SECRET or not IMPORT_SECRET:
@@ -264,6 +303,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("districts", districts_cmd))
     app.add_handler(CommandHandler("import", import_cmd))
+    app.add_handler(CommandHandler("exportids", exportids_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_id))
     logger.info("Bot ishga tushdi...")
     app.run_polling()
