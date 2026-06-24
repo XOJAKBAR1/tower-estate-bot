@@ -90,12 +90,20 @@ async def pushmanifest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Ruxsat yo'q.")
         return
 
-    try:
-        with open("image_manifest.json", encoding="utf-8") as f:
-            all_items = json.load(f)
-    except Exception as e:
-        await update.message.reply_text(f"Faylni o'qishda xato: {e}")
-        return
+    import glob
+    part_files = sorted(glob.glob("image_manifest_part*.json"))
+    if part_files:
+        all_items = []
+        for pf in part_files:
+            with open(pf, encoding="utf-8") as f:
+                all_items.extend(json.load(f))
+    else:
+        try:
+            with open("image_manifest.json", encoding="utf-8") as f:
+                all_items = json.load(f)
+        except Exception as e:
+            await update.message.reply_text(f"Faylni o'qishda xato: {e}")
+            return
 
     total = len(all_items)
     await update.message.reply_text(f"Manifest yuklash boshlandi: {total} ta yozuv...")
