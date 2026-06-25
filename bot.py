@@ -84,6 +84,100 @@ async def exportids_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+OLD_SERVER_BASE = "http://201.51.18.2/rieltor/uploads/"
+
+
+async def fetchimages_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args
+    if not args or args[0] != IMPORT_SECRET or not IMPORT_SECRET:
+        await update.message.reply_text("Ruxsat yo'q.")
+        return
+
+    start_index = int(args[1]) if len(args) > 1 else 0
+
+    import glob
+    import urllib.parse
+
+    part_files = sorted(glob.glob("image_manifest_part*.json"))
+    if part_files:
+        all_items = []
+        for pf in part_files:
+            with open(pf, encoding="utf-8") as f:
+                all_items.extend(json.load(f))
+    else:
+        try:
+            with open("image_manifest.json", encoding="utf-8") as f:
+                all_items = json.load(f)
+        except Exception as e:
+            await update.message.reply_text(f"Faylni o'qishda xato: {e}")
+            return
+
+    all_items = all_items[start_index:]
+    total = len(all_items)
+    await update.message.reply_text(
+        f"Rasm yuklash boshlandi (#{start_index}dan): {total} ta rasm..."
+    )
+
+    url = f"{SUPABASE_URL}/functions/v1/bulk-fetch-images"
+    ok_total = 0
+    error_total = 0
+    error_samples = []
+    batch_size = 120
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as client:
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+            "apikey": SUPABASE_KEY,
+        }
+        for i in range(0, total, batch_size):
+            batch = all_items[i : i + batch_size]
+            items = [
+                {
+                    "property_id": it["new_id"],
+                    "filename": it["filename"],
+                    "source_url": OLD_SERVER_BASE
+                    + urllib.parse.quote(it["filename"]),
+                }
+                for it in batch
+            ]
+            try:
+                resp = await client.post(url, headers=headers, json={"items": items})
+                if resp.status_code != 200:
+                    error_total += len(batch)
+                    error_samples.append(
+                        f"Batch {start_index+i}: HTTP {resp.status_code} - {resp.text[:300]}"
+                    )
+                    continue
+                data = resp.json()
+                for r in data.get("results", []):
+                    if r.get("ok"):
+                        ok_total += 1
+                    else:
+                        error_total += 1
+                        if len(error_samples) < 10:
+                            error_samples.append(str(r))
+            except Exception as e:
+                error_total += len(batch)
+                error_samples.append(
+                    f"Batch {start_index+i}: {type(e).__name__}: {repr(e)}"
+                )
+
+            done = i + len(batch)
+            if (i // batch_size) % 5 == 0 or done >= total:
+                await update.message.reply_text(
+                    f"Progress: {start_index+done}/{start_index+total} | "
+                    f"OK: {ok_total} | Xato: {error_total}\n"
+                    f"Davom ettirish uchun: /fetchimages {IMPORT_SECRET} {start_index+done}"
+                )
+            await asyncio.sleep(0.2)
+
+    summary = f"✅ Rasm yuklash tugadi.\nOK: {ok_total}\nXato: {error_total}"
+    if error_samples:
+        summary += "\n\n" + "\n".join(error_samples[:5])
+    await update.message.reply_text(summary)
+
+
 async def pushmanifest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if not args or args[0] != IMPORT_SECRET or not IMPORT_SECRET:
@@ -368,6 +462,7 @@ def main():
     app.add_handler(CommandHandler("import", import_cmd))
     app.add_handler(CommandHandler("exportids", exportids_cmd))
     app.add_handler(CommandHandler("pushmanifest", pushmanifest_cmd))
+    app.add_handler(CommandHandler("fetchimages", fetchimages_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_id))
     logger.info("Bot ishga tushdi...")
     app.run_polling()
